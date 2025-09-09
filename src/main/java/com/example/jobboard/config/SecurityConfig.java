@@ -1,80 +1,70 @@
 package com.example.jobboard.config;
 
-
 import com.example.jobboard.service.CustomUserDetailsService;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.authentication.AuthenticationProvider;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.authentication.AuthenticationManager;
 
 @Configuration
-@EnableMethodSecurity
+@EnableMethodSecurity // Enables method-level security like @PreAuthorize
 public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // Disable CSRF for simplicity in testing (adjust for production)
                 .csrf(csrf -> csrf.disable())
-
-                // Set URL-based security rules
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Company endpoints: GET permitted to all, others require recruiter role
-                        .requestMatchers(HttpMethod.GET, "/companies/**").permitAll()
-                        .requestMatchers("/companies/**").hasAuthority("ROLE_RECRUITER")// Applies to POST, PUT, DELETE
+                        // --- 1. PUBLIC ENDPOINTS (No Authentication Required) ---
+                        // Anyone can register a new user account.
+                        .requestMatchers(HttpMethod.POST, "/api/profile/register").permitAll()
+                        // Anyone can view public lists of jobs, companies, and posts.
+                        .requestMatchers(HttpMethod.GET, "/api/jobs/**", "/api/companies/public/**", "/api/posts/public/**").permitAll()
 
-                        // Job endpoints: GET permitted to all; posting new jobs require recruiter role
-                        .requestMatchers(HttpMethod.GET, "/jobs/**").permitAll()
-                        .requestMatchers("/jobs/**").hasAuthority("ROLE_RECRUITER")
+                        // --- 2. RECRUITER ONLY ENDPOINTS (Authentication + 'ROLE_RECRUITER' required) ---
+                        // Creating, updating, or deleting companies.
+                        .requestMatchers("/api/companies/**").hasAuthority("ROLE_RECRUITER")
+                        // Creating, updating, or deleting jobs.
+                        .requestMatchers(HttpMethod.POST, "/api/jobs").hasAuthority("ROLE_RECRUITER")
+                        .requestMatchers(HttpMethod.PUT, "/api/jobs/**").hasAuthority("ROLE_RECRUITER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/jobs/**").hasAuthority("ROLE_RECRUITER")
+                        // Viewing or updating applications for a job.
+                        .requestMatchers("/api/jobs/*/applications", "/api/applications/*/status").hasAuthority("ROLE_RECRUITER")
 
+                        // --- 3. GENERAL AUTHENTICATED ENDPOINTS (Any Logged-in User) ---
+                        // All other endpoints under /api/ require the user to be authenticated,
+                        // regardless of their role. This covers:
+                        // - User profile management (/api/profile)
+                        // - All Connection actions (/api/connections/**)
+                        // - All Post actions (creating, editing, feed) (/api/posts/**)
+                        // - All Application actions (applying, viewing own, withdrawing)
+                        .requestMatchers("/api/**").authenticated()
 
-                        // Post endpoints: GET permitted to all; other operations require any authenticated user
-                        .requestMatchers("/posts").permitAll() // GET /posts open to all
-                        .requestMatchers("/posts/**").authenticated()
-
-                        // User registration should be open
-                        .requestMatchers("/users/**").permitAll()
-                        .requestMatchers("/auth/**").permitAll()
-
-                        // Any other requests require authentication
+                        // --- 4. DEFAULT RULE ---
+                        // Secure any other endpoint by default.
                         .anyRequest().authenticated()
                 )
-                .logout(logout -> logout
-                        .logoutUrl("/auth/logout")
-                        .logoutSuccessHandler((request, response, authentication) -> {
-                            response.setContentType("application/json");
-                            response.setCharacterEncoding("UTF-8");
-                            response.getWriter().write("{\"message\": \"User logged out successfully\"}");
-                            response.setStatus(HttpServletResponse.SC_OK);
-                        })
-                        .invalidateHttpSession(true)
-                        .deleteCookies("JSESSIONID")
-                )
-
-                // Use HTTP Basic Authentication (suitable for testing via Postman)
                 .httpBasic(Customizer.withDefaults());
 
         return http.build();
     }
 
-    // Define the PasswordEncoder bean using BCrypt
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
-
-
 
     @Bean
     public UserDetailsService userDetailsService() {
@@ -93,5 +83,5 @@ public class SecurityConfig {
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
         return authenticationConfiguration.getAuthenticationManager();
     }
-
 }
+

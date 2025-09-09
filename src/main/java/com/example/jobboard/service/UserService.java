@@ -1,15 +1,16 @@
 package com.example.jobboard.service;
 
 import com.example.jobboard.dto.UserDTO;
+import com.example.jobboard.dto.UserUpdateDTO;
 import com.example.jobboard.entity.User;
 import com.example.jobboard.exception.ResourceNotFoundException;
 import com.example.jobboard.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import com.example.jobboard.exception.InvalidRequestException;
 
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 public class UserService {
@@ -20,69 +21,69 @@ public class UserService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    // Get all users and convert to DTO
-    public List<UserDTO> getAllUsers() {
-        return userRepository.findAll().stream()
-                .map(this::convertToDTO)
-                .collect(Collectors.toList());
+    // This method is fine as it's for public registration.
+    public UserDTO registerUser(User user) {
+        if (userRepository.findByUsername(user.getUsername()).isPresent()) {
+            throw new ResourceNotFoundException("Username already exists.");
+        }
+
+        String role = user.getRole();
+        if (role == null || (!role.equals("ROLE_USER") && !role.equals("ROLE_RECRUITER"))) {
+            throw new InvalidRequestException("Invalid role specified. Allowed roles are ROLE_USER or ROLE_RECRUITER.");
+        }
+
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+
+        User savedUser = userRepository.save(user);
+        return convertToDTO(savedUser);
     }
 
-    // Get a user by ID and convert to DTO
-    public UserDTO getUserById(Long id) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + id));
+
+    // New method to fetch a user by username.
+    public UserDTO getUserByUsername(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
         return convertToDTO(user);
     }
 
-    // Register a new user and return DTO
-    public UserDTO registerUser(User user) {
-        if (userRepository.findByUsername(user.getUsername()).isPresent()) {
-            throw new ResourceNotFoundException("Username already exists. Choose a different one.");
-        }
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
-        User savedUser = userRepository.save(user);
-        return convertToDTO(savedUser);
-    }
+    // SECURE UPDATE METHOD
+    @Transactional
+    public UserDTO updateUserProfile(String username, UserUpdateDTO userUpdateDTO) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
 
-    // Update user details
-    public UserDTO updateUser(Long id, User updatedUser) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + id));
+        // Update only the fields that are safe to change
+        if (userUpdateDTO.getEmail() != null) {
+            user.setEmail(userUpdateDTO.getEmail());
+        }
+        if (userUpdateDTO.getLocation() != null) {
+            user.setLocation(userUpdateDTO.getLocation());
+        }
+        if (userUpdateDTO.getJobPreference() != null) {
+            user.setJobPreference(userUpdateDTO.getJobPreference());
+        }
 
-        if (updatedUser.getUsername() != null) {
-            user.setUsername(updatedUser.getUsername());
+        // SECURE: Check if password is provided and hash it before saving
+        if (userUpdateDTO.getPassword() != null && !userUpdateDTO.getPassword().isEmpty()) {
+            user.setPassword(passwordEncoder.encode(userUpdateDTO.getPassword()));
         }
-        if (updatedUser.getEmail() != null) {
-            user.setEmail(updatedUser.getEmail());
-        }
-        if (updatedUser.getPassword() != null) {
-            user.setPassword(updatedUser.getPassword());  // Consider encrypting the password if needed
-        }
-        if (updatedUser.getRole() != null) {
-            user.setRole(updatedUser.getRole());
-        }
-        if (updatedUser.getLocation() != null) {
-            user.setLocation(updatedUser.getLocation());
-        }
-        if (updatedUser.getJobPreference() != null) {
-            user.setJobPreference(updatedUser.getJobPreference());
-        }
+
+        // NOTE: We DO NOT allow changing the username or role here.
 
         User savedUser = userRepository.save(user);
         return convertToDTO(savedUser);
     }
 
-    // Delete a user
-    public void deleteUser(Long id) {
-        if (!userRepository.existsById(id)) {
-            throw new ResourceNotFoundException("User not found with ID: " + id);
-        }
-        userRepository.deleteById(id);
+    // SECURE DELETE METHOD - CORRECTED
+    @Transactional
+    public void deleteUserByUsername(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username)); // Corrected this line
+        userRepository.delete(user);
     }
 
-    // Convert User entity to UserDTO
+    // Helper method to convert User to DTO
     private UserDTO convertToDTO(User user) {
-
         return new UserDTO(
                 user.getId(),
                 user.getUsername(),

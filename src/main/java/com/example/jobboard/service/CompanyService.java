@@ -1,13 +1,17 @@
 package com.example.jobboard.service;
 
+import com.example.jobboard.dto.CompanyDTO;
 import com.example.jobboard.entity.Company;
 import com.example.jobboard.entity.User;
+import com.example.jobboard.exception.InvalidRequestException;
 import com.example.jobboard.exception.ResourceNotFoundException;
 import com.example.jobboard.repository.CompanyRepository;
+import com.example.jobboard.repository.JobRepository;
 import com.example.jobboard.repository.UserRepository;
-import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -20,68 +24,79 @@ public class CompanyService {
     @Autowired
     private UserRepository userRepository;
 
-    // Get all companies
-    public List<Company> getAllCompanies() {
-        return companyRepository.findAll();
-    }
+    @Autowired
+    private JobRepository jobRepository;
 
-    // Get company by ID
+    // Public methods remain unchanged.
+    public List<Company> getAllCompanies() { return companyRepository.findAll(); }
     public Company getCompanyById(Long id) {
         return companyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Company not found with ID: " + id));
     }
 
-    // Create a new company (Corrected: Takes ONLY `Company company`)
+    // SECURE: Create a company.
     @Transactional
-    public Company createCompany(Company company, Long recruiterId) {
-        // Check if the company name already exists
-        if (companyRepository.findByName(company.getName()).isPresent()) {
-            throw new RuntimeException("Company name already exists");
+    public Company createCompany(CompanyDTO companyDTO, String recruiterUsername) {
+        if (companyRepository.findByName(companyDTO.getName()).isPresent()) {
+            throw new InvalidRequestException("Company name already exists");
         }
 
-        User recruiter = userRepository.findById(recruiterId)
-                .orElseThrow(() -> new RuntimeException("Recruiter not found"));
+        User recruiter = userRepository.findByUsername(recruiterUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("Recruiter not found"));
 
-        if (!"ROLE_RECRUITER".equals(recruiter.getRole())) {
-            throw new RuntimeException("User is not a recruiter");
+        if (recruiter.getCompany() != null) {
+            throw new InvalidRequestException("This recruiter is already associated with a company.");
         }
 
-        recruiter.setCompany(company); // Assign company to recruiter
-        company.getRecruiters().add(recruiter); // Add recruiter to company's recruiter list
+        Company newCompany = new Company();
+        newCompany.setName(companyDTO.getName());
+        newCompany.setLocation(companyDTO.getLocation());
+        newCompany.setDescription(companyDTO.getDescription());
 
+        // Establish the bidirectional relationship
+        recruiter.setCompany(newCompany);
+        newCompany.getRecruiters().add(recruiter);
 
-        return companyRepository.save(company);
+        return companyRepository.save(newCompany);
     }
 
+    // SECURE: Update a company.
+    @Transactional
+    public Company updateCompany(Long companyId, CompanyDTO companyDTO, String recruiterUsername) {
+        Company companyToUpdate = getCompanyById(companyId);
+        User recruiter = userRepository.findByUsername(recruiterUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("Recruiter not found"));
 
-    // Update a company (Corrected: Takes `companyId` + `updatedCompany`)
-    public Company updateCompany(Long companyId, Company updatedCompany) {
-        Company company = getCompanyById(companyId);
-
-        if (updatedCompany.getName() != null) {
-            company.setName(updatedCompany.getName());
-        }
-        if (updatedCompany.getDescription() != null) {
-            company.setDescription(updatedCompany.getDescription());
-        }
-        if (updatedCompany.getLocation() != null) {
-            company.setLocation(updatedCompany.getLocation());
+        // AUTHORIZATION CHECK: Ensure the recruiter belongs to the company they are trying to update.
+        if (recruiter.getCompany() == null || !recruiter.getCompany().getId().equals(companyToUpdate.getId())) {
+            throw new AccessDeniedException("You are not authorized to update this company.");
         }
 
-        if (company.getName() == null || company.getDescription() == null || company.getLocation() == null) {
-            throw new IllegalArgumentException("Company name, description, and location cannot be null.");
-        }
+        companyToUpdate.setName(companyDTO.getName());
+        companyToUpdate.setDescription(companyDTO.getDescription());
+        companyToUpdate.setLocation(companyDTO.getLocation());
 
-        return companyRepository.save(company);
+        return companyRepository.save(companyToUpdate);
     }
 
+    // SECURE: Delete a company.
+    @Transactional
+    public void deleteCompany(Long companyId, String recruiterUsername) {
+        Company companyToDelete = getCompanyById(companyId);
+        User recruiter = userRepository.findByUsername(recruiterUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("Recruiter not found"));
 
-    // Delete a company
-    public void deleteCompany(Long companyId) {
-        if (!companyRepository.existsById(companyId)) {
-            throw new ResourceNotFoundException("Company not found with ID: " + companyId);
+        // AUTHORIZATION CHECK: Ensure the recruiter belongs to the company they are trying to delete.
+        if (recruiter.getCompany() == null || !recruiter.getCompany().getId().equals(companyToDelete.getId())) {
+            throw new AccessDeniedException("You are not authorized to delete this company.");
         }
 
-        companyRepository.deleteById(companyId);
+        // Before deleting a company, we must unlink all recruiters from it.
+        for (User user : companyToDelete.getRecruiters()) {
+            user.setCompany(null);
+            userRepository.save(user);
+        }
+
+        companyRepository.delete(companyToDelete);
     }
 }

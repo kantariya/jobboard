@@ -1,58 +1,65 @@
 package com.example.jobboard.controller;
 
-import com.example.jobboard.dto.UserDTO;
+import com.example.jobboard.Security.CustomUserDetails;
+import com.example.jobboard.dto.PostCreateDTO;
 import com.example.jobboard.entity.Post;
-import com.example.jobboard.entity.User;
 import com.example.jobboard.service.PostService;
-import com.example.jobboard.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/posts")
+@RequestMapping("/api/posts") // Grouping authenticated actions under /api
 public class PostController {
 
     @Autowired
     private PostService postService;
 
-    @Autowired
-    private UserService userService;
 
-    // Get all posts
-    @GetMapping
+    @GetMapping("/public")
     public List<Post> getAllPosts() {
         return postService.getAllPosts();
     }
 
-    // Get a post by ID
-    @GetMapping("/{id}")
+    @GetMapping("/public/{id}")
     public Post getPostById(@PathVariable Long id) {
         return postService.getPostById(id);
     }
 
-    // Create a new post
-    @PostMapping("/{userId}")
-    public Post createPost(@PathVariable Long userId, @RequestBody Post post) {
-        return postService.createPost(userId,post);
+    // SECURE ENDPOINTS
+
+    // SECURE: Create a post for the currently authenticated user.
+    @PostMapping
+    public Post createPost(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @RequestBody PostCreateDTO postDTO) {
+        return postService.createPost(currentUser.getUsername(), postDTO);
     }
 
-    // Update a post
-    @PutMapping("/{id}")
-    public Post updatePost(@PathVariable Long id, @RequestBody Post updatedPost) {
-        return postService.updatePost(id, updatedPost);
+    // SECURE: Update a post, with ownership validation.
+    @PutMapping("/{postId}")
+    public Post updatePost(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @PathVariable Long postId,
+            @RequestBody PostCreateDTO postDTO) {
+        return postService.updatePost(currentUser.getUsername(), postId, postDTO);
     }
 
-    // Delete a post
-    @DeleteMapping("/{id}")
-    public void deletePost(@PathVariable Long id) {
-        postService.deletePost(id);
+    // SECURE: Delete a post, with ownership validation.
+    @DeleteMapping("/{postId}")
+    public ResponseEntity<Void> deletePost(
+            @AuthenticationPrincipal CustomUserDetails currentUser,
+            @PathVariable Long postId) {
+        postService.deletePost(currentUser.getUsername(), postId);
+        return ResponseEntity.noContent().build();
     }
 
-    // Get posts from user connections
-    @GetMapping("/connections/{userId}")
-    public List<Post> getPostsFromConnections(@PathVariable Long userId) {
-        return postService.getPostsFromConnections(userId);
+    // SECURE: Get the connection feed for the currently authenticated user.
+    @GetMapping("/feed")
+    public List<Post> getPostsFromConnections(@AuthenticationPrincipal CustomUserDetails currentUser) {
+        return postService.getPostsFromConnections(currentUser.getUsername());
     }
 }

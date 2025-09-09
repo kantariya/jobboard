@@ -1,6 +1,5 @@
 package com.example.jobboard.entity;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import java.util.HashSet;
@@ -17,9 +16,11 @@ public class Company {
     private String location;
     private String description;
 
-    @OneToMany(mappedBy = "company", cascade = CascadeType.ALL)
-    @JsonBackReference("company-users")
+    @OneToMany(mappedBy = "company", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @JsonManagedReference("company-users")
     private Set<User> recruiters = new HashSet<>();
+
+
 
     // Getters and Setters
 

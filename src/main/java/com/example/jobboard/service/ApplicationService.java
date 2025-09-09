@@ -1,90 +1,113 @@
 package com.example.jobboard.service;
 
+import com.example.jobboard.dto.ApplicationDTO;
+import com.example.jobboard.dto.ApplicationStatusDTO;
 import com.example.jobboard.entity.Application;
 import com.example.jobboard.entity.Job;
 import com.example.jobboard.entity.User;
+import com.example.jobboard.exception.InvalidRequestException;
 import com.example.jobboard.exception.ResourceNotFoundException;
 import com.example.jobboard.repository.ApplicationRepository;
 import com.example.jobboard.repository.JobRepository;
 import com.example.jobboard.repository.UserRepository;
-import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class ApplicationService {
 
     @Autowired
     private ApplicationRepository applicationRepository;
-
     @Autowired
     private UserRepository userRepository;
-
     @Autowired
     private JobRepository jobRepository;
 
-    // Apply for a job (Corrected: Takes ONLY `Application application`)
-    public Application applyForJob(Application application,Long applicant_id,Long jobId) {
+    // --- APPLICANT ACTIONS (Unchanged) ---
 
-        User applicant = userRepository.findById(applicant_id)
-                .orElseThrow(() -> new RuntimeException("Recruiter not found"));
+    @Transactional
+    public Application applyForJob(Long jobId, ApplicationDTO applicationDTO, String applicantUsername) {
+        User applicant = userRepository.findByUsername(applicantUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("Applicant not found"));
+        Job job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Job not found"));
 
-        Job job = jobRepository.findById(jobId) .orElseThrow(() -> new RuntimeException("Job not found"));
+        if (applicationRepository.existsByApplicantAndJob(applicant, job)) {
+            throw new InvalidRequestException("You have already applied for this job.");
+        }
 
+        Application newApplication = new Application();
+        newApplication.setApplicant(applicant);
+        newApplication.setJob(job);
+        newApplication.setResume(applicationDTO.getResume());
+        newApplication.setStatus("PENDING");
+        newApplication.setAppliedAt(LocalDateTime.now());
 
-        applicant.getApplications().add(application) ;
-        application.setApplicant(applicant);
-        application.setStatus("PENDING");
-        application.setAppliedAt(LocalDateTime.now());
-        application.setJob(job);
-
-
-        return applicationRepository.save(application);
+        return applicationRepository.save(newApplication);
     }
 
-    // Get application by ID
-    public Application getApplicationById(Long id) {
-        return applicationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Application not found with ID: " + id));
+    public List<Application> getApplicationsByUser(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        return applicationRepository.findByApplicantId(user.getId());
     }
 
-    // Get all applications for a specific user
-    public List<Application> getApplicationsByUser(Long userId) {
-        return applicationRepository.findByApplicantId(userId);
+    public void withdrawApplication(Long applicationId, String applicantUsername) {
+        Application application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+        User applicant = userRepository.findByUsername(applicantUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("Applicant not found"));
+
+        if (!Objects.equals(application.getApplicant().getId(), applicant.getId())) {
+            throw new AccessDeniedException("You are not authorized to withdraw this application.");
+        }
+        applicationRepository.delete(application);
     }
 
-    // Get all applications for a specific job
-    public List<Application> getApplicationsByJob(Long jobId) {
+    // --- RECRUITER ACTIONS ---
+
+    public List<Application> getApplicationsByJobForRecruiter(Long jobId, String recruiterUsername) {
+        Job job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Job not found"));
+        User recruiter = userRepository.findByUsername(recruiterUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("Recruiter not found"));
+
+        // AUTHORIZATION CHECK 1: Ensure the user has the RECRUITER role.
+        if (!"ROLE_RECRUITER".equals(recruiter.getRole())) {
+            throw new AccessDeniedException("You must be a recruiter to perform this action.");
+        }
+
+        // AUTHORIZATION CHECK 2: Ensure the recruiter posted the job.
+        if (!Objects.equals(job.getPostedBy().getId(), recruiter.getId())) {
+            throw new AccessDeniedException("You are not authorized to view applications for this job.");
+        }
         return applicationRepository.findByJobId(jobId);
     }
 
-
-
     @Transactional
-    public Application updateApplication(Long id, Application updatedApplication) {
-        Application existingApplication = applicationRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Application not found"));
+    public Application updateApplicationStatus(Long applicationId, ApplicationStatusDTO statusDTO, String recruiterUsername) {
+        Application application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+        User recruiter = userRepository.findByUsername(recruiterUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("Recruiter not found"));
 
-        // Only update fields that are provided (not null)
-        if (updatedApplication.getStatus() != null) {
-            existingApplication.setStatus(updatedApplication.getStatus());
-        }
-        if (updatedApplication.getResume() != null) {
-            existingApplication.setResume(updatedApplication.getResume());
+        // UTHORIZATION CHECK 1: Ensure the user has the RECRUITER role.
+        if (!"ROLE_RECRUITER".equals(recruiter.getRole())) {
+            throw new AccessDeniedException("You must be a recruiter to perform this action.");
         }
 
-        return applicationRepository.save(existingApplication);
-    }
-
-    // Delete application
-    public void deleteApplication(Long applicationId) {
-        if (!applicationRepository.existsById(applicationId)) {
-            throw new ResourceNotFoundException("Application not found with ID: " + applicationId);
+        // AUTHORIZATION CHECK 2: Ensure the recruiter owns the job the application is for.
+        if (!Objects.equals(application.getJob().getPostedBy().getId(), recruiter.getId())) {
+            throw new AccessDeniedException("You are not authorized to update this application.");
         }
-        applicationRepository.deleteById(applicationId);
+
+        application.setStatus(statusDTO.getStatus());
+        return applicationRepository.save(application);
     }
 }

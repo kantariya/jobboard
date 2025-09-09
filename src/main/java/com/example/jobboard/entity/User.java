@@ -38,8 +38,7 @@ public class User {
     @JsonManagedReference("user-posts")
     private Set<Post> posts = new HashSet<>();
 
-    @OneToMany(mappedBy = "user1", cascade = CascadeType.ALL)
-    private Set<Connection> connections = new HashSet<>();
+
 
     // Getters and Setters
 
@@ -121,14 +120,6 @@ public class User {
 
     public void setPosts(Set<Post> posts) {
         this.posts = posts;
-    }
-
-    public Set<Connection> getConnections() {
-        return connections;
-    }
-
-    public void setConnections(Set<Connection> connections) {
-        this.connections = connections;
     }
 
     public String getLocation() {

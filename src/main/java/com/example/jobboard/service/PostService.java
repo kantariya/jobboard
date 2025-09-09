@@ -1,5 +1,6 @@
 package com.example.jobboard.service;
 
+import com.example.jobboard.dto.PostCreateDTO;
 import com.example.jobboard.entity.Connection;
 import com.example.jobboard.entity.Post;
 import com.example.jobboard.entity.User;
@@ -8,10 +9,12 @@ import com.example.jobboard.repository.ConnectionRepository;
 import com.example.jobboard.repository.PostRepository;
 import com.example.jobboard.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,59 +29,75 @@ public class PostService {
     @Autowired
     private ConnectionRepository connectionRepository;
 
-    // Get all posts
+    // These public methods are fine.
     public List<Post> getAllPosts() {
         return postRepository.findAll();
     }
 
-    // Get post by ID
     public Post getPostById(Long id) {
         return postRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Post not found with ID: " + id));
     }
 
-    // Create a new post
-    public Post createPost(Long userId, Post post) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with ID: " + userId));
+    // SECURE: Create a new post.
+    public Post createPost(String username, PostCreateDTO postDTO) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
 
-        post.setUser(user);
-        post.setCreatedAt(LocalDateTime.now());
-        return postRepository.save(post);
+        Post newPost = new Post();
+        newPost.setUser(user);
+        newPost.setContent(postDTO.getContent());
+        newPost.setImageUrl(postDTO.getImageUrl());
+        newPost.setCreatedAt(LocalDateTime.now());
+        return postRepository.save(newPost);
     }
 
-    // Update a post
-    public Post updatePost(Long id, Post updatedPost) {
-        Post existingPost = getPostById(id);
+    // SECURE: Update a post.
+    public Post updatePost(String username, Long postId, PostCreateDTO postDTO) {
+        Post existingPost = postRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found with ID: " + postId));
 
-        if (updatedPost.getContent() != null) {
-            existingPost.setContent(updatedPost.getContent());
+        // VALIDATION: Check if the user trying to update the post is the owner.
+        if (!Objects.equals(existingPost.getUser().getUsername(), username)) {
+            throw new AccessDeniedException("You are not authorized to update this post.");
         }
+
+        existingPost.setContent(postDTO.getContent());
+        existingPost.setImageUrl(postDTO.getImageUrl());
 
         return postRepository.save(existingPost);
     }
 
+    // SECURE: Delete a post.
+    public void deletePost(String username, Long postId) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found with ID: ".concat(String.valueOf(postId))));
 
-    // Delete a post
-    public void deletePost(Long id) {
-        if (!postRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Post not found with ID: " + id);
+        // VALIDATION: Check if the user trying to delete the post is the owner.
+        if (!Objects.equals(post.getUser().getUsername(), username)) {
+            throw new AccessDeniedException("You are not authorized to delete this post.");
         }
-        postRepository.deleteById(id);
+
+        postRepository.delete(post);
     }
 
-    // Get posts from user connections
-    public List<Post> getPostsFromConnections(Long userId) {
-        // Get all accepted connections for the user
-        List<Connection> connections = connectionRepository.findByUser1IdOrUser2IdAndStatus(userId, userId, "ACCEPTED");
+    // SECURE: Get posts from user connections.
+    public List<Post> getPostsFromConnections(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
 
-        // Extract connected user IDs only from accepted connections
+        // Get all accepted connections for the user
+        List<Connection> connections = connectionRepository.findByUser1IdOrUser2IdAndStatus(user.getId(), user.getId(), "ACCEPTED");
+
+        // Extract connected user IDs
         List<Long> connectionUserIds = connections.stream()
-                .map(conn -> conn.getUser1().getId().equals(userId) ? conn.getUser2().getId() : conn.getUser1().getId())
+                .map(conn -> conn.getUser1().getId().equals(user.getId()) ? conn.getUser2().getId() : conn.getUser1().getId())
                 .collect(Collectors.toList());
 
-        // Fetch posts by connected users
-        return postRepository.findByUserIdIn(connectionUserIds);
-    }
+        // Also include the user's own posts in their feed
+        connectionUserIds.add(user.getId());
 
+        // Fetch posts by connected users
+        return postRepository.findByUserIdInOrderByCreatedAtDesc(connectionUserIds);
+    }
 }

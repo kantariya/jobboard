@@ -1,7 +1,6 @@
 package com.example.jobboard.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
-import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -15,7 +14,7 @@ public class Application {
     private String status; // "PENDING", "ACCEPTED", "REJECTED"
     private LocalDateTime appliedAt;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "job_id", nullable = false)
     private Job job;
 

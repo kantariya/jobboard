@@ -5,5 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface PostRepository extends JpaRepository<Post, Long> {
-    List<Post> findByUserIdIn(List<Long> userIds); // Get posts from all connections of a user
+    // Finds all posts where the user ID is in the provided list,
+    // and orders them with the newest posts first.
+    List<Post> findByUserIdInOrderByCreatedAtDesc(List<Long> userIds);
 }

@@ -1,9 +1,10 @@
 package com.example.jobboard.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
-import com.fasterxml.jackson.annotation.JsonManagedReference;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Entity
 public class Job {
@@ -22,6 +23,11 @@ public class Job {
     @JoinColumn(name = "posted_by", nullable = false)
     @JsonBackReference("user-jobs")
     private User postedBy; // Recruiter who posted the job
+
+    @JsonIgnore
+    @OneToMany(mappedBy = "job", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Application> applications;
+
 
     // Getters and Setters
 
