@@ -5,7 +5,6 @@ It is designed for learning and practicing **Spring Boot + MySQL** fundamentals,
 ## ✨ Features
 ### 👤 User Authentication
 - **Basic Authentication** (username + password)
-- Secure storage with MySQL and JPA
 ### 💼 Job Postings
 - Create new job posts
 - Retrieve available job posts
@@ -45,9 +44,6 @@ mvn spring-boot:run
 ```
 App starts at: http://localhost:8080
 ## 🔗 API Endpoints (Sample)
-### User
-- POST /users/register → Register new user
-- POST /users/login → Login with credentials
 ### Job Posts
 - POST /jobs → Create a job post
 - GET /jobs → List all job posts
